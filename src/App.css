@@ -222,3 +222,33 @@ h1 {
 .order-summary p {
   margin: 4px 0;
 }
+.wake-banner {
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12.5px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  line-height: 1.4;
+}
+
+.file-status {
+  font-size: 12px;
+  color: #6b7280;
+  margin: -4px 0 8px 0;
+}
+
+.file-status-error {
+  color: #ef4444;
+}
+
+.retry-link {
+  background: none;
+  border: none;
+  color: #4f46e5;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}

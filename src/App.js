@@ -4,21 +4,42 @@ import "./App.css";
 // Live backend URL — update this if you ever redeploy the backend elsewhere
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:5000";
 
-// Simple pricing shown to the customer as an estimate (should match backend rates)
-const RATE_PER_PAGE_BW = 2;
-const RATE_PER_PAGE_COLOR = 10;
+// Shown briefly on first load, then replaced by real values from GET /pricing.
+// Keeping a fallback here means the page still works (with slightly stale
+// numbers) even if that request fails — it is not the source of truth.
+const DEFAULT_RATES = { ratePerPageBW: 3, ratePerPageColor: 10, maxFileSizeMB: 10 };
 
-function estimatePageCount(pagesString) {
-  if (!pagesString) return 1;
+// If a request takes longer than this, we assume the backend is waking up
+// from Render's free-tier sleep and let the customer know instead of
+// leaving them staring at a blank screen.
+const SLOW_REQUEST_THRESHOLD_MS = 4000;
+
+let nextFileId = 1;
+
+/**
+ * Works out how many pages a file's print settings cover, for the
+ * on-screen estimate. Mirrors the backend's utils/pricing.js formula —
+ * the backend recalculates authoritatively when the order is created, so
+ * a mismatch here would only ever affect this preview, never the charge.
+ */
+function resolvePageCount(entry) {
+  const fallback = entry.pageCount && entry.pageCount > 0 ? entry.pageCount : 1;
+  const pagesString = (entry.pages || "").trim();
+
+  if (!pagesString) return fallback;
+
   if (pagesString.includes("-")) {
     const [start, end] = pagesString.split("-").map(Number);
-    if (isNaN(start) || isNaN(end) || end < start) return 1;
-    return end - start + 1;
+    if (!isNaN(start) && !isNaN(end) && end >= start) return end - start + 1;
+    return fallback;
   }
   if (pagesString.includes(",")) {
-    return pagesString.split(",").filter(Boolean).length;
+    const count = pagesString.split(",").filter((p) => p.trim() !== "").length;
+    return count > 0 ? count : fallback;
   }
-  return 1;
+  if (!isNaN(Number(pagesString))) return 1;
+
+  return fallback;
 }
 
 function App() {
@@ -26,10 +47,12 @@ function App() {
   const [shopId, setShopId] = useState(null);
   const [shopName, setShopName] = useState(null);
   const [shopLoadError, setShopLoadError] = useState(false);
-  const [files, setFiles] = useState([]); // [{ file, pages, copies, color }]
+  const [rates, setRates] = useState(DEFAULT_RATES);
+  const [files, setFiles] = useState([]); // [{ id, file, pages, copies, color, uploading, uploadError, fileUrl, fileName, pageCount }]
   const [submitting, setSubmitting] = useState(false);
   const [order, setOrder] = useState(null); // the created order, once submitted
   const [error, setError] = useState(null);
+  const [serverWaking, setServerWaking] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -38,21 +61,41 @@ function App() {
     setShopId(shop);
   }, []);
 
+  // Pull the current per-page rates + file size limit from the backend once,
+  // so this UI never shows a price that could drift from what's charged.
+  useEffect(() => {
+    fetchWithWakeNotice(`${BACKEND_URL}/pricing`)
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data) =>
+        setRates({
+          ratePerPageBW: data.ratePerPageBW,
+          ratePerPageColor: data.ratePerPageColor,
+          maxFileSizeMB: data.maxFileSizeMB,
+        })
+      )
+      .catch(() => {
+        // Keep DEFAULT_RATES — the on-screen estimate may be slightly
+        // stale, but the order will still be priced correctly server-side.
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Look up the shop's display name once we know the shopId
   useEffect(() => {
     if (!shopId) return;
-    fetch(`${BACKEND_URL}/shops/${shopId}`)
+    fetchWithWakeNotice(`${BACKEND_URL}/shops/${shopId}`)
       .then((res) => {
         if (!res.ok) throw new Error("Shop not found");
         return res.json();
       })
       .then((data) => setShopName(data.shopName))
       .catch(() => setShopLoadError(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shopId]);
 
   // Poll order status once an order has been submitted
   useEffect(() => {
-    if (!order || ["completed", "failed", "rejected"].includes(order.status)) return;
+    if (!order || ["completed", "failed", "rejected", "expired"].includes(order.status)) return;
 
     const interval = setInterval(async () => {
       try {
@@ -67,39 +110,116 @@ function App() {
     return () => clearInterval(interval);
   }, [order]);
 
+  /**
+   * fetch() wrapper that flags `serverWaking` if a request is taking a
+   * while — the most likely cause on Render's free tier is the backend
+   * spinning back up after being idle, not an actual failure.
+   */
+  async function fetchWithWakeNotice(url, options) {
+    const timer = setTimeout(() => setServerWaking(true), SLOW_REQUEST_THRESHOLD_MS);
+    try {
+      return await fetch(url, options);
+    } finally {
+      clearTimeout(timer);
+      setServerWaking(false);
+    }
+  }
+
   function handleFileSelect(e) {
     const selected = Array.from(e.target.files);
-    const newEntries = selected.map((file) => ({
-      file,
-      pages: "",
-      copies: 1,
-      color: false,
-    }));
-    setFiles((prev) => [...prev, ...newEntries]);
     e.target.value = null; // allow re-selecting the same file if removed and re-added
+
+    const maxBytes = rates.maxFileSizeMB * 1024 * 1024;
+
+    selected.forEach((file) => {
+      if (file.size > maxBytes) {
+        setError(
+          `"${file.name}" is ${(file.size / (1024 * 1024)).toFixed(1)}MB, which is over the ${rates.maxFileSizeMB}MB limit per file. Please choose a smaller file.`
+        );
+        return;
+      }
+
+      const id = nextFileId++;
+      const entry = {
+        id,
+        file,
+        pages: "",
+        copies: 1,
+        color: false,
+        uploading: true,
+        uploadError: null,
+        fileUrl: null,
+        fileName: file.name,
+        pageCount: null,
+      };
+      setFiles((prev) => [...prev, entry]);
+      uploadFile(id, file);
+    });
   }
 
-  function updateFileSetting(index, key, value) {
-    setFiles((prev) =>
-      prev.map((f, i) => (i === index ? { ...f, [key]: value } : f))
-    );
+  async function uploadFile(id, file) {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch(`${BACKEND_URL}/upload`, { method: "POST", body: formData });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error((data && data.error) || `Failed to upload ${file.name}.`);
+      }
+
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === id
+            ? { ...f, uploading: false, fileUrl: data.fileUrl, fileName: data.fileName, pageCount: data.pageCount }
+            : f
+        )
+      );
+    } catch (e) {
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === id ? { ...f, uploading: false, uploadError: e.message || "Upload failed." } : f
+        )
+      );
+    }
   }
 
-  function removeFile(index) {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
+  function retryUpload(id) {
+    const entry = files.find((f) => f.id === id);
+    if (!entry) return;
+    setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, uploading: true, uploadError: null } : f)));
+    uploadFile(id, entry.file);
+  }
+
+  function updateFileSetting(id, key, value) {
+    setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, [key]: value } : f)));
+  }
+
+  function removeFile(id) {
+    setFiles((prev) => prev.filter((f) => f.id !== id));
   }
 
   function calculateTotal() {
     return files.reduce((total, f) => {
-      const pageCount = estimatePageCount(f.pages);
-      const rate = f.color ? RATE_PER_PAGE_COLOR : RATE_PER_PAGE_BW;
-      return total + pageCount * rate * (f.copies || 1);
+      if (!f.fileUrl) return total; // still uploading or failed — not part of the order yet
+      const pageCount = resolvePageCount(f);
+      const rate = f.color ? rates.ratePerPageColor : rates.ratePerPageBW;
+      return total + pageCount * rate * (Number(f.copies) || 1);
     }, 0);
   }
 
+  const hasFilesStillUploading = files.some((f) => f.uploading);
+  const hasFailedUploads = files.some((f) => f.uploadError);
+  const readyFiles = files.filter((f) => f.fileUrl);
+
   async function handleSubmit() {
-    if (files.length === 0) {
+    if (readyFiles.length === 0) {
       setError("Please add at least one file.");
+      return;
+    }
+    if (hasFilesStillUploading) {
+      setError("Please wait for all files to finish uploading.");
       return;
     }
 
@@ -107,38 +227,25 @@ function App() {
     setSubmitting(true);
 
     try {
-      // 1. Upload each file to the backend (which forwards to Cloudinary)
-      const uploadedFiles = [];
-      for (const f of files) {
-        const formData = new FormData();
-        formData.append("file", f.file);
+      const uploadedFiles = readyFiles.map((f) => ({
+        fileUrl: f.fileUrl,
+        fileName: f.fileName,
+        pages: f.pages || null,
+        copies: Number(f.copies) || 1,
+        color: f.color,
+        pageCount: f.pageCount,
+      }));
 
-        const uploadRes = await fetch(`${BACKEND_URL}/upload`, {
-          method: "POST",
-          body: formData,
-        });
-
-        if (!uploadRes.ok) throw new Error(`Failed to upload ${f.file.name}`);
-        const uploadData = await uploadRes.json();
-
-        uploadedFiles.push({
-          fileUrl: uploadData.fileUrl,
-          fileName: uploadData.fileName,
-          pages: f.pages || null,
-          copies: Number(f.copies) || 1,
-          color: f.color,
-        });
-      }
-
-      // 2. Create the order
-      const orderRes = await fetch(`${BACKEND_URL}/orders`, {
+      const orderRes = await fetchWithWakeNotice(`${BACKEND_URL}/orders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ shopId, files: uploadedFiles }),
       });
 
-      if (!orderRes.ok) throw new Error("Failed to create order.");
-      const orderData = await orderRes.json();
+      const orderData = await orderRes.json().catch(() => null);
+      if (!orderRes.ok) {
+        throw new Error((orderData && orderData.error) || "Failed to create order.");
+      }
       setOrder(orderData);
     } catch (e) {
       setError(e.message || "Something went wrong. Please try again.");
@@ -165,7 +272,7 @@ function App() {
             <p><strong>Files:</strong> {order.files.length}</p>
             <p><strong>Estimated price:</strong> ₹{order.estimatedPrice}</p>
           </div>
-          {["completed", "failed", "rejected"].includes(order.status) && (
+          {["completed", "failed", "rejected", "expired"].includes(order.status) && (
             <button className="primary-btn" onClick={startNewOrder}>
               Start New Order
             </button>
@@ -199,6 +306,12 @@ function App() {
           {shopLoadError ? "Shop not found" : shopName ? `at ${shopName}` : "Loading shop..."}
         </p>
 
+        {serverWaking && (
+          <p className="wake-banner">
+            Waking up the server — this can take up to a minute on the first request after a period of inactivity. Please hang on.
+          </p>
+        )}
+
         <button
           className="upload-btn"
           onClick={() => fileInputRef.current.click()}
@@ -218,20 +331,35 @@ function App() {
           <p className="empty-state">No files added yet. Tap "+ Add Files" to begin.</p>
         )}
 
-        {files.map((f, index) => (
-          <div className="file-row" key={index}>
+        {files.map((f) => (
+          <div className="file-row" key={f.id}>
             <div className="file-header">
-              <span className="file-name">{f.file.name}</span>
-              <button className="remove-btn" onClick={() => removeFile(index)}>✕</button>
+              <span className="file-name">{f.fileName}</span>
+              <button className="remove-btn" onClick={() => removeFile(f.id)}>✕</button>
             </div>
+
+            {f.uploading && <p className="file-status">Uploading...</p>}
+            {f.uploadError && (
+              <p className="file-status file-status-error">
+                {f.uploadError}{" "}
+                <button className="retry-link" onClick={() => retryUpload(f.id)}>Retry</button>
+              </p>
+            )}
+            {!f.uploading && !f.uploadError && f.pageCount != null && (
+              <p className="file-status">{f.pageCount} page{f.pageCount === 1 ? "" : "s"} detected</p>
+            )}
+            {!f.uploading && !f.uploadError && f.pageCount == null && f.fileUrl && (
+              <p className="file-status">Page count unavailable — enter it manually below if needed.</p>
+            )}
+
             <div className="file-settings">
               <label>
                 Pages
                 <input
                   type="text"
-                  placeholder="All"
+                  placeholder={f.pageCount ? `All (${f.pageCount})` : "All"}
                   value={f.pages}
-                  onChange={(e) => updateFileSetting(index, "pages", e.target.value)}
+                  onChange={(e) => updateFileSetting(f.id, "pages", e.target.value)}
                 />
               </label>
               <label>
@@ -240,7 +368,7 @@ function App() {
                   type="number"
                   min="1"
                   value={f.copies}
-                  onChange={(e) => updateFileSetting(index, "copies", e.target.value)}
+                  onChange={(e) => updateFileSetting(f.id, "copies", e.target.value)}
                 />
               </label>
               <label className="color-toggle">
@@ -248,7 +376,7 @@ function App() {
                 <input
                   type="checkbox"
                   checked={f.color}
-                  onChange={(e) => updateFileSetting(index, "color", e.target.checked)}
+                  onChange={(e) => updateFileSetting(f.id, "color", e.target.checked)}
                 />
               </label>
             </div>
@@ -266,10 +394,10 @@ function App() {
 
         <button
           className="primary-btn"
-          disabled={files.length === 0 || submitting}
+          disabled={readyFiles.length === 0 || hasFilesStillUploading || hasFailedUploads || submitting}
           onClick={handleSubmit}
         >
-          {submitting ? "Submitting..." : "Submit Order"}
+          {submitting ? "Submitting..." : hasFilesStillUploading ? "Uploading..." : "Submit Order"}
         </button>
       </div>
     </div>
@@ -284,6 +412,7 @@ function StatusDisplay({ status, message }) {
     completed: { label: "Ready for pickup!", color: "#22c55e" },
     failed: { label: "Print failed", color: "#ef4444" },
     rejected: { label: "Order rejected", color: "#ef4444" },
+    expired: { label: "Order expired — please submit a new one", color: "#ef4444" },
   };
 
   const config = statusConfig[status] || { label: status, color: "#6b7280" };
