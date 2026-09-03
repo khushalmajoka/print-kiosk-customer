@@ -61,10 +61,12 @@ function App() {
     setShopId(shop);
   }, []);
 
-  // Pull the current per-page rates + file size limit from the backend once,
-  // so this UI never shows a price that could drift from what's charged.
+  // Pull this shop's effective per-page rates + file size limit from the
+  // backend once we know shopId — a shop may have set its own custom rates
+  // (Settings -> Print Rates), so this must never be hardcoded here.
   useEffect(() => {
-    fetchWithWakeNotice(`${BACKEND_URL}/pricing`)
+    if (!shopId) return;
+    fetchWithWakeNotice(`${BACKEND_URL}/pricing?shopId=${encodeURIComponent(shopId)}`)
       .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((data) =>
         setRates({
@@ -78,7 +80,7 @@ function App() {
         // stale, but the order will still be priced correctly server-side.
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [shopId]);
 
   // Look up the shop's display name once we know the shopId
   useEffect(() => {
