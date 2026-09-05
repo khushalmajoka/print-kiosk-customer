@@ -22,6 +22,12 @@ body {
   width: 100%;
   max-width: 420px;
   box-shadow: var(--shadow-md);
+  animation: card-in var(--duration-base) var(--ease-standard);
+}
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .brand {
@@ -103,6 +109,12 @@ h1 {
   border-radius: var(--radius-lg);
   padding: var(--space-3);
   margin-bottom: var(--space-3);
+  animation: file-row-in var(--duration-base) var(--ease-standard);
+}
+
+@keyframes file-row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .file-header {
@@ -129,6 +141,16 @@ h1 {
   font-size: var(--text-lg);
   cursor: pointer;
   padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+}
+
+.remove-btn:hover {
+  background: var(--red-50);
+}
+
+.remove-btn:active {
+  transform: scale(0.9);
 }
 
 .file-settings {

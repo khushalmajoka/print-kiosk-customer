@@ -123,3 +123,16 @@
   --duration-fast: 120ms;
   --duration-base: 200ms;
 }
+
+/* Respect the OS-level "reduce motion" accessibility setting — collapses
+   every animation/transition to near-instant instead of removing the
+   visual change entirely, so state changes are still visible, just
+   without the motion that can cause discomfort for some people. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
