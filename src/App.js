@@ -408,16 +408,16 @@ function App() {
 
 function StatusDisplay({ status, message }) {
   const statusConfig = {
-    awaiting_approval: { label: "Waiting for shop approval", color: "#f59e0b" },
-    pending: { label: "Approved — queued to print", color: "#3b82f6" },
-    printing: { label: "Printing now", color: "#3b82f6" },
-    completed: { label: "Ready for pickup!", color: "#22c55e" },
-    failed: { label: "Print failed", color: "#ef4444" },
-    rejected: { label: "Order rejected", color: "#ef4444" },
-    expired: { label: "Order expired — please submit a new one", color: "#ef4444" },
+    awaiting_approval: { label: "Waiting for shop approval", color: "var(--amber-600)" },
+    pending: { label: "Approved — queued to print", color: "var(--blue-600)" },
+    printing: { label: "Printing now", color: "var(--blue-600)" },
+    completed: { label: "Ready for pickup!", color: "var(--green-600)" },
+    failed: { label: "Print failed", color: "var(--red-600)" },
+    rejected: { label: "Order rejected", color: "var(--red-600)" },
+    expired: { label: "Order expired — please submit a new one", color: "var(--red-600)" },
   };
 
-  const config = statusConfig[status] || { label: status, color: "#6b7280" };
+  const config = statusConfig[status] || { label: status, color: "var(--gray-600)" };
 
   return (
     <div className="status-display">
