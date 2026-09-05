@@ -290,9 +290,19 @@ function App() {
       <div className="page">
         <div className="card status-card">
           <div className="brand">PrintKaro</div>
-          <p className="empty-state">
-            No shop selected. Please scan the QR code at your print shop's counter to begin.
-          </p>
+          <div className="empty-state-wrap">
+            <div className="empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none">
+                <rect x="4" y="4" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.6" />
+                <rect x="13" y="4" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.6" />
+                <rect x="4" y="13" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M14 15h5.5M16.5 13v5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </div>
+            <p className="empty-state">
+              No shop selected. Please scan the QR code at your print shop's counter to begin.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -330,7 +340,15 @@ function App() {
         />
 
         {files.length === 0 && (
-          <p className="empty-state">No files added yet. Tap "+ Add Files" to begin.</p>
+          <div className="empty-state-wrap">
+            <div className="empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none">
+                <path d="M12 3v10m0 0l-3.5-3.5M12 13l3.5-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M6 15v2a2 2 0 002 2h8a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <p className="empty-state">No files added yet. Tap "+ Add Files" to begin.</p>
+          </div>
         )}
 
         {files.map((f) => (
@@ -407,22 +425,60 @@ function App() {
 }
 
 function StatusDisplay({ status, message }) {
-  const statusConfig = {
-    awaiting_approval: { label: "Waiting for shop approval", color: "var(--amber-600)" },
-    pending: { label: "Approved — queued to print", color: "var(--blue-600)" },
-    printing: { label: "Printing now", color: "var(--blue-600)" },
-    completed: { label: "Ready for pickup!", color: "var(--green-600)" },
-    failed: { label: "Print failed", color: "var(--red-600)" },
-    rejected: { label: "Order rejected", color: "var(--red-600)" },
-    expired: { label: "Order expired — please submit a new one", color: "var(--red-600)" },
+  const STEP_ORDER = ["awaiting_approval", "pending", "printing", "completed"];
+  const STEP_LABELS = { awaiting_approval: "Approval", pending: "Queued", printing: "Printing", completed: "Done" };
+  const STATUS_TEXT = {
+    awaiting_approval: "Waiting for shop approval",
+    pending: "Approved — queued to print",
+    printing: "Printing now",
+    completed: "Ready for pickup!",
+    failed: "Print failed",
+    rejected: "Order rejected",
+    expired: "Order expired — please submit a new one",
   };
 
-  const config = statusConfig[status] || { label: status, color: "var(--gray-600)" };
+  // rejected/expired always happen right at the approval stage (the shop
+  // never moved it forward); failed always happens after printing was
+  // attempted (the last step). Anything else maps directly onto a step.
+  let activeIndex = STEP_ORDER.indexOf(status);
+  let errorIndex = null;
+  if (status === "rejected" || status === "expired") {
+    activeIndex = 0;
+    errorIndex = 0;
+  } else if (status === "failed") {
+    activeIndex = STEP_ORDER.length - 1;
+    errorIndex = STEP_ORDER.length - 1;
+  } else if (activeIndex === -1) {
+    activeIndex = 0;
+  }
+
+  const label = STATUS_TEXT[status] || status;
+  const textColor = errorIndex !== null ? "var(--red-600)" : status === "completed" ? "var(--green-600)" : "var(--indigo-500)";
 
   return (
     <div className="status-display">
-      <div className="status-dot" style={{ backgroundColor: config.color }} />
-      <span style={{ color: config.color }}>{config.label}</span>
+      <div className="stepper">
+        {STEP_ORDER.map((step, i) => {
+          let state = "upcoming";
+          if (errorIndex === i) state = "error";
+          else if (i < activeIndex) state = "done";
+          else if (i === activeIndex) state = activeIndex === STEP_ORDER.length - 1 && errorIndex === null ? "success" : "active";
+
+          return (
+            <div className="step" key={step}>
+              <div className="step-track">
+                {i > 0 && <div className={`step-connector ${i <= activeIndex ? "step-connector-filled" : ""}`} />}
+                <div className={`step-circle step-${state}`}>
+                  {(state === "done" || state === "success") && "\u2713"}
+                  {state === "error" && "\u2715"}
+                </div>
+              </div>
+              <span className={`step-label ${state === "upcoming" ? "step-label-upcoming" : ""}`}>{STEP_LABELS[step]}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="status-text" style={{ color: textColor }}>{label}</p>
       {message && <p className="status-message">{message}</p>}
     </div>
   );

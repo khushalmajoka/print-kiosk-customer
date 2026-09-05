@@ -74,6 +74,30 @@ h1 {
   padding: var(--space-5) 0;
 }
 
+.empty-state-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+}
+
+.empty-state-wrap .empty-state {
+  padding: 0;
+  max-width: 260px;
+}
+
+.empty-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-full);
+  background: var(--indigo-50);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--indigo-400);
+}
+
 .file-row {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -205,20 +229,107 @@ h1 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-2);
   margin: var(--space-5) 0;
 }
 
-.status-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-full);
+.stepper {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  margin-bottom: var(--space-1);
 }
 
-.status-display span {
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.step-track {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.step-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  transition: background var(--duration-base) var(--ease-standard);
+}
+
+.step-connector-filled {
+  background: var(--indigo-500);
+}
+
+.step-circle {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: var(--font-weight-bold);
+  color: white;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  transition: background var(--duration-base) var(--ease-standard), border-color var(--duration-base) var(--ease-standard);
+}
+
+.step-upcoming {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--ink-400);
+}
+
+.step-active {
+  background: var(--indigo-500);
+  border-color: var(--indigo-500);
+  animation: step-pulse 1.6s var(--ease-standard) infinite;
+}
+
+.step-done {
+  background: var(--indigo-500);
+  border-color: var(--indigo-500);
+}
+
+.step-success {
+  background: var(--green-600);
+  border-color: var(--green-600);
+}
+
+.step-error {
+  background: var(--red-600);
+  border-color: var(--red-600);
+}
+
+.step-label {
+  font-size: 11px;
+  color: var(--ink-900);
+  font-weight: var(--font-weight-medium);
+  margin-top: var(--space-1);
+  white-space: nowrap;
+}
+
+.step-label-upcoming {
+  color: var(--ink-400);
+  font-weight: var(--font-weight-regular);
+}
+
+@keyframes step-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(79, 70, 229, 0); }
+}
+
+.status-text {
   font-family: var(--font-display);
   font-size: var(--text-md);
   font-weight: var(--font-weight-semibold);
+  margin: var(--space-2) 0 0;
 }
 
 .status-message {
