@@ -43,8 +43,10 @@
 
   /* Semantic colors — status, success/error/warning states */
   --green-600: #15803d;
+  --green-700: #12692f;
   --green-50:  #effaf3;
   --red-600:   #dc2626;
+  --red-100:   #fde2e2;
   --red-50:    #fef1f1;
   --amber-600: #d97706;
   --amber-50:  #fef6e7;
@@ -124,6 +126,48 @@
   --duration-base: 200ms;
 }
 
+/* =====================================================================
+   DARK MODE
+   Applied by adding data-theme="dark" to a wrapping element (see the
+   Shopkeeper Dashboard's theme toggle). Every component already
+   references colors exclusively through these variable names, so
+   flipping their values here is enough to re-theme the whole app —
+   no component CSS needs to change.
+   ===================================================================== */
+[data-theme="dark"] {
+  --paper: #0e1015;
+  --surface: #171922;
+  --border: #2a2d3a;
+
+  --ink-900: #f1f2f6;
+  --ink-700: #cdd1db;
+  --ink-600: #a3a9b7;
+  --ink-400: #6b7280;
+
+  --gray-50: #1f222c;
+  --gray-600: #9aa1b0;
+
+  --indigo-50: #1c1f3a;
+  --indigo-100: #262b52;
+  --indigo-200: #333a6e;
+
+  --green-50: #10241a;
+  --green-600: #22c55e;
+  --green-700: #2fae67;
+
+  --red-50: #2a1416;
+  --red-100: #4a2224;
+
+  --amber-50: #2a2110;
+  --amber-600: #f59e0b;
+
+  --blue-50: #101d33;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
 /* Respect the OS-level "reduce motion" accessibility setting — collapses
    every animation/transition to near-instant instead of removing the
    visual change entirely, so state changes are still visible, just
@@ -135,4 +179,14 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Smooth, app-wide fallback transition for color/background/border changes
+   — mainly so the dark-mode toggle doesn't feel like a jarring snap.
+   Elements with their own more specific transition (e.g. a hover-lift
+   card) keep that instead; this only fills in the gap for everything else. */
+*, *::before, *::after {
+  transition: background-color var(--duration-base) var(--ease-standard),
+    border-color var(--duration-base) var(--ease-standard),
+    color var(--duration-base) var(--ease-standard);
 }

@@ -14,6 +14,12 @@ const DEFAULT_RATES = { ratePerPageBW: 3, ratePerPageColor: 10, maxFileSizeMB: 1
 // leaving them staring at a blank screen.
 const SLOW_REQUEST_THRESHOLD_MS = 4000;
 
+const WIZARD_STEPS = [
+  { n: 1, label: "Upload" },
+  { n: 2, label: "Configure" },
+  { n: 3, label: "Review" },
+];
+
 let nextFileId = 1;
 
 /**
@@ -49,6 +55,7 @@ function App() {
   const [shopLoadError, setShopLoadError] = useState(false);
   const [rates, setRates] = useState(DEFAULT_RATES);
   const [files, setFiles] = useState([]); // [{ id, file, pages, copies, color, uploading, uploadError, fileUrl, fileName, pageCount }]
+  const [step, setStep] = useState(1); // 1: upload, 2: configure, 3: review
   const [submitting, setSubmitting] = useState(false);
   const [order, setOrder] = useState(null); // the created order, once submitted
   const [error, setError] = useState(null);
@@ -215,13 +222,29 @@ function App() {
   const hasFailedUploads = files.some((f) => f.uploadError);
   const readyFiles = files.filter((f) => f.fileUrl);
 
+  // Step 1 (Upload) can't be left until every added file has either
+  // finished uploading successfully or been removed — this keeps the
+  // "which files" decision fully contained to step 1, so step 2 only
+  // ever deals with files that are actually ready to be printed.
+  const canLeaveUploadStep = readyFiles.length > 0 && !hasFilesStillUploading && !hasFailedUploads;
+
+  function goToStep(n) {
+    setStep(n);
+  }
+
+  function goNext() {
+    setError(null);
+    setStep((s) => Math.min(s + 1, 3));
+  }
+
+  function goBack() {
+    setError(null);
+    setStep((s) => Math.max(s - 1, 1));
+  }
+
   async function handleSubmit() {
-    if (readyFiles.length === 0) {
-      setError("Please add at least one file.");
-      return;
-    }
-    if (hasFilesStillUploading) {
-      setError("Please wait for all files to finish uploading.");
+    if (readyFiles.length === 0 || hasFilesStillUploading || hasFailedUploads) {
+      setError("Please go back and resolve any pending or failed uploads first.");
       return;
     }
 
@@ -259,6 +282,7 @@ function App() {
   function startNewOrder() {
     setOrder(null);
     setFiles([]);
+    setStep(1);
     setError(null);
   }
 
@@ -308,7 +332,7 @@ function App() {
     );
   }
 
-  // ---- Upload / configure screen ----
+  // ---- Upload / Configure / Review wizard ----
   return (
     <div className="page">
       <div className="card">
@@ -318,108 +342,203 @@ function App() {
           {shopLoadError ? "Shop not found" : shopName ? `at ${shopName}` : "Loading shop..."}
         </p>
 
+        <WizardSteps step={step} onStepClick={goToStep} />
+
         {serverWaking && (
           <p className="wake-banner">
             Waking up the server — this can take up to a minute on the first request after a period of inactivity. Please hang on.
           </p>
         )}
 
-        <button
-          className="upload-btn"
-          onClick={() => fileInputRef.current.click()}
-        >
-          + Add Files
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="application/pdf"
-          multiple
-          hidden
-          onChange={handleFileSelect}
-        />
+        {/* ---- Step 1: Upload ---- */}
+        {step === 1 && (
+          <>
+            <button className="upload-btn" onClick={() => fileInputRef.current.click()}>
+              + Add Files
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              multiple
+              hidden
+              onChange={handleFileSelect}
+            />
 
-        {files.length === 0 && (
-          <div className="empty-state-wrap">
-            <div className="empty-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="26" height="26" fill="none">
-                <path d="M12 3v10m0 0l-3.5-3.5M12 13l3.5-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M6 15v2a2 2 0 002 2h8a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <p className="empty-state">No files added yet. Tap "+ Add Files" to begin.</p>
-          </div>
+            {files.length === 0 && (
+              <div className="empty-state-wrap">
+                <div className="empty-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="26" height="26" fill="none">
+                    <path d="M12 3v10m0 0l-3.5-3.5M12 13l3.5-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M6 15v2a2 2 0 002 2h8a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+                <p className="empty-state">No files added yet. Tap "+ Add Files" to begin.</p>
+              </div>
+            )}
+
+            {files.map((f) => (
+              <div className="file-row" key={f.id}>
+                <div className="file-header">
+                  <span className="file-name">{f.fileName}</span>
+                  <button className="remove-btn" onClick={() => removeFile(f.id)}>✕</button>
+                </div>
+
+                {f.uploading && <p className="file-status">Uploading...</p>}
+                {f.uploadError && (
+                  <p className="file-status file-status-error">
+                    {f.uploadError}{" "}
+                    <button className="retry-link" onClick={() => retryUpload(f.id)}>Retry</button>
+                  </p>
+                )}
+                {!f.uploading && !f.uploadError && f.pageCount != null && (
+                  <p className="file-status">{f.pageCount} page{f.pageCount === 1 ? "" : "s"} detected</p>
+                )}
+                {!f.uploading && !f.uploadError && f.pageCount == null && f.fileUrl && (
+                  <p className="file-status">Page count unavailable — you can enter it manually in the next step.</p>
+                )}
+              </div>
+            ))}
+
+            {error && <p className="error-text">{error}</p>}
+
+            <button className="primary-btn" disabled={!canLeaveUploadStep} onClick={goNext}>
+              Next: Configure Settings →
+            </button>
+          </>
         )}
 
-        {files.map((f) => (
-          <div className="file-row" key={f.id}>
-            <div className="file-header">
-              <span className="file-name">{f.fileName}</span>
-              <button className="remove-btn" onClick={() => removeFile(f.id)}>✕</button>
+        {/* ---- Step 2: Configure ---- */}
+        {step === 2 && (
+          <>
+            {readyFiles.map((f) => (
+              <div className="file-row" key={f.id}>
+                <div className="file-header">
+                  <span className="file-name">{f.fileName}</span>
+                </div>
+
+                {f.pageCount != null ? (
+                  <p className="file-status">{f.pageCount} page{f.pageCount === 1 ? "" : "s"} detected</p>
+                ) : (
+                  <p className="file-status">Page count unavailable — enter it manually below if needed.</p>
+                )}
+
+                <div className="file-settings">
+                  <label>
+                    Pages
+                    <input
+                      type="text"
+                      placeholder={f.pageCount ? `All (${f.pageCount})` : "All"}
+                      value={f.pages}
+                      onChange={(e) => updateFileSetting(f.id, "pages", e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Copies
+                    <input
+                      type="number"
+                      min="1"
+                      value={f.copies}
+                      onChange={(e) => updateFileSetting(f.id, "copies", e.target.value)}
+                    />
+                  </label>
+                  <label className="color-toggle">
+                    Color
+                    <input
+                      type="checkbox"
+                      checked={f.color}
+                      onChange={(e) => updateFileSetting(f.id, "color", e.target.checked)}
+                    />
+                  </label>
+                </div>
+              </div>
+            ))}
+
+            <div className="wizard-nav">
+              <button className="back-link" onClick={goBack}>← Back</button>
+              <button className="primary-btn wizard-nav-primary" onClick={goNext}>
+                Next: Review Order →
+              </button>
             </div>
-
-            {f.uploading && <p className="file-status">Uploading...</p>}
-            {f.uploadError && (
-              <p className="file-status file-status-error">
-                {f.uploadError}{" "}
-                <button className="retry-link" onClick={() => retryUpload(f.id)}>Retry</button>
-              </p>
-            )}
-            {!f.uploading && !f.uploadError && f.pageCount != null && (
-              <p className="file-status">{f.pageCount} page{f.pageCount === 1 ? "" : "s"} detected</p>
-            )}
-            {!f.uploading && !f.uploadError && f.pageCount == null && f.fileUrl && (
-              <p className="file-status">Page count unavailable — enter it manually below if needed.</p>
-            )}
-
-            <div className="file-settings">
-              <label>
-                Pages
-                <input
-                  type="text"
-                  placeholder={f.pageCount ? `All (${f.pageCount})` : "All"}
-                  value={f.pages}
-                  onChange={(e) => updateFileSetting(f.id, "pages", e.target.value)}
-                />
-              </label>
-              <label>
-                Copies
-                <input
-                  type="number"
-                  min="1"
-                  value={f.copies}
-                  onChange={(e) => updateFileSetting(f.id, "copies", e.target.value)}
-                />
-              </label>
-              <label className="color-toggle">
-                Color
-                <input
-                  type="checkbox"
-                  checked={f.color}
-                  onChange={(e) => updateFileSetting(f.id, "color", e.target.checked)}
-                />
-              </label>
-            </div>
-          </div>
-        ))}
-
-        {files.length > 0 && (
-          <div className="total-row">
-            <span>Estimated Total</span>
-            <span className="total-amount">₹{calculateTotal()}</span>
-          </div>
+          </>
         )}
 
-        {error && <p className="error-text">{error}</p>}
+        {/* ---- Step 3: Review ---- */}
+        {step === 3 && (
+          <>
+            <div className="review-list">
+              {readyFiles.map((f) => {
+                const pageCount = resolvePageCount(f);
+                const rate = f.color ? rates.ratePerPageColor : rates.ratePerPageBW;
+                const linePrice = pageCount * rate * (Number(f.copies) || 1);
+                return (
+                  <div className="review-row" key={f.id}>
+                    <div className="review-row-main">
+                      <span className="review-file-name">{f.fileName}</span>
+                      <span className="review-file-price">₹{linePrice}</span>
+                    </div>
+                    <div className="review-file-meta">
+                      {pageCount} page{pageCount === 1 ? "" : "s"} × {f.copies} {Number(f.copies) === 1 ? "copy" : "copies"} · {f.color ? "Color" : "B&W"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
 
-        <button
-          className="primary-btn"
-          disabled={readyFiles.length === 0 || hasFilesStillUploading || hasFailedUploads || submitting}
-          onClick={handleSubmit}
-        >
-          {submitting ? "Submitting..." : hasFilesStillUploading ? "Uploading..." : "Submit Order"}
-        </button>
+            <div className="total-row">
+              <span>Estimated Total</span>
+              <span className="total-amount">₹{calculateTotal()}</span>
+            </div>
+
+            {error && <p className="error-text">{error}</p>}
+
+            <div className="wizard-nav">
+              <button className="back-link" onClick={goBack} disabled={submitting}>← Back</button>
+              <button
+                className="primary-btn wizard-nav-primary"
+                disabled={readyFiles.length === 0 || hasFilesStillUploading || hasFailedUploads || submitting}
+                onClick={handleSubmit}
+              >
+                {submitting ? "Submitting..." : "Submit Order"}
+              </button>
+            </div>
+          </>
+        )}
       </div>
+    </div>
+  );
+}
+
+function WizardSteps({ step, onStepClick }) {
+  return (
+    <div className="wizard-steps">
+      {WIZARD_STEPS.map((s, i) => {
+        let state = "upcoming";
+        if (s.n < step) state = "done";
+        else if (s.n === step) state = "active";
+
+        // Only completed (earlier) steps can be jumped back to directly —
+        // moving forward always goes through the Next button so its
+        // validation actually runs.
+        const clickable = state === "done";
+
+        return (
+          <div className="wizard-step" key={s.n}>
+            <div className="wizard-step-track">
+              {i > 0 && <div className={`wizard-connector ${s.n <= step ? "wizard-connector-filled" : ""}`} />}
+              <button
+                type="button"
+                className={`wizard-dot wizard-dot-${state}`}
+                onClick={() => clickable && onStepClick(s.n)}
+                disabled={!clickable}
+              >
+                {state === "done" ? "\u2713" : s.n}
+              </button>
+            </div>
+            <span className={`wizard-label ${state === "upcoming" ? "wizard-label-upcoming" : ""}`}>{s.label}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
