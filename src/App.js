@@ -158,6 +158,7 @@ function App() {
         uploading: true,
         uploadError: null,
         fileUrl: null,
+        publicId: null,
         fileName: file.name,
         pageCount: null,
       };
@@ -181,7 +182,7 @@ function App() {
       setFiles((prev) =>
         prev.map((f) =>
           f.id === id
-            ? { ...f, uploading: false, fileUrl: data.fileUrl, fileName: data.fileName, pageCount: data.pageCount }
+            ? { ...f, uploading: false, fileUrl: data.fileUrl, fileName: data.fileName, pageCount: data.pageCount, publicId: data.publicId }
             : f
         )
       );
@@ -254,6 +255,7 @@ function App() {
     try {
       const uploadedFiles = readyFiles.map((f) => ({
         fileUrl: f.fileUrl,
+        publicId: f.publicId,
         fileName: f.fileName,
         pages: f.pages || null,
         copies: Number(f.copies) || 1,
